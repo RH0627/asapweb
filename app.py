@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
-
-
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 import pickle
@@ -12,15 +9,16 @@ import esm
 import torch
 import os
 import sys
+import logging
 
-
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # 获取当前文件所在目录的绝对路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # 创建Flask应用，并指定模板目录
 app = Flask(__name__)
-
-
 
 def resource_path(relative_path):
     """获取资源的绝对路径"""
@@ -32,6 +30,7 @@ def resource_path(relative_path):
 
 def predict_peptide(sequence_list):
     try:
+        logger.info("开始处理序列预测")
         # 预处理数据
         peptide_sequence_list = []
         for seq in sequence_list:
@@ -40,6 +39,7 @@ def predict_peptide(sequence_list):
             peptide_sequence_list.append(tuple_sequence)
             
         # 加载ESM-2模型
+        logger.info("正在加载ESM-2模型")
         model, alphabet = esm.pretrained.esm2_t6_8M_UR50D()
         batch_converter = alphabet.get_batch_converter()
         model.eval()
@@ -63,6 +63,7 @@ def predict_peptide(sequence_list):
         embedding_results = pd.DataFrame(sequence_representations)
         
         # 加载SVM模型
+        logger.info("正在加载SVM模型")
         model_path = resource_path('svm.pkl')
         with open(model_path, 'rb') as file:
             loaded_model = pickle.load(file)
@@ -80,25 +81,35 @@ def predict_peptide(sequence_list):
             elif predictions[i] == 1:
                 result.append({'sequence': sequence_list[i], 'prediction': 'active', 'probability': f"{probabilities[i]:.6f}"})
         
+        logger.info("预测完成")
         return result
         
     except Exception as e:
+        logger.error(f"预测过程中发生错误: {str(e)}")
         return {'error': str(e)}
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        logger.error(f"渲染首页时发生错误: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    data = request.get_json()
-    sequences = data.get('sequences', [])
-    
-    if not sequences:
-        return jsonify({'error': 'Please provide sequences'})
-    
-    results = predict_peptide(sequences)
-    return jsonify(results)
+    try:
+        data = request.get_json()
+        sequences = data.get('sequences', [])
+        
+        if not sequences:
+            return jsonify({'error': 'Please provide sequences'})
+        
+        results = predict_peptide(sequences)
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"预测请求处理时发生错误: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 # 添加CORS支持
 @app.after_request
